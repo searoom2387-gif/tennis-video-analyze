@@ -2,14 +2,19 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from tennis_analyze.court_model import COURT_LENGTH_M, COURT_WIDTH_M
+from tennis_analyze.court_model import COURT_LENGTH_M, COURT_WIDTH_M, SERVICE_LINE_FROM_NET_M
 from tennis_analyze.types import PlayerSample
 
 ANCHOR_RADIUS_M = 0.3  # movement counts only once the player is this far from the last anchor
+NET_Y_M = COURT_LENGTH_M / 2
+FRONT_ZONE_FROM_NET_M = SERVICE_LINE_FROM_NET_M  # "front" = strictly inside the service line distance
 
 
 @dataclass(frozen=True)
 class PlayerStats:
+    # share_front: within FRONT_ZONE_FROM_NET_M of the net (else back).
+    # share_left/right: as seen by the player facing the net (x mirrored on the far half).
+    # Each pair sums to 1.0; samples outside the court still count.
     distance_m: float
     mean_speed_mps: float
     share_left: float
@@ -52,8 +57,11 @@ def compute_stats(samples: list[PlayerSample]) -> dict[str, PlayerStats]:
         distance = _distance(xy)
         duration = own[-1].time_s - own[0].time_s
         speed = distance / duration if duration > 0 else 0.0
-        left = float(np.mean(xy[:, 0] < COURT_WIDTH_M / 2))
-        front = float(np.mean(xy[:, 1] < COURT_LENGTH_M / 2))
+        # Zones use each raw (unsmoothed) sample's own position.
+        x, y = xy[:, 0], xy[:, 1]
+        player_x = np.where(y < NET_Y_M, x, COURT_WIDTH_M - x)
+        left = float(np.mean(player_x < COURT_WIDTH_M / 2))
+        front = float(np.mean(np.abs(y - NET_Y_M) < FRONT_ZONE_FROM_NET_M))
         result[player] = PlayerStats(distance, speed, left, 1.0 - left, front, 1.0 - front)
     return result
 

@@ -28,11 +28,12 @@ img { max-width: 100%; }
 <h2>スタッツ</h2>
 {% if stats %}
 <table>
-<tr><th>選手</th><th>移動距離 (m)</th><th>平均速度 (m/s)</th><th>左側 (%)</th><th>右側 (%)</th><th>手前 (%)</th><th>奥 (%)</th></tr>
+<tr><th>選手</th><th>移動距離 (m)</th><th>平均速度 (m/s)</th><th>左 (本人から見て) (%)</th><th>右 (本人から見て) (%)</th><th>ネット側 (%)</th><th>ベースライン側 (%)</th></tr>
 {% for player, st in stats.items() %}
 <tr><td>{{ player }}</td><td>{{ "%.1f"|format(st.distance_m) }}</td><td>{{ "%.2f"|format(st.mean_speed_mps) }}</td><td>{{ "%.0f"|format(st.share_left * 100) }}</td><td>{{ "%.0f"|format(st.share_right * 100) }}</td><td>{{ "%.0f"|format(st.share_front * 100) }}</td><td>{{ "%.0f"|format(st.share_back * 100) }}</td></tr>
 {% endfor %}
 </table>
+<p class="note">前後はネットから6.40m以内、左右は選手本人から見た向き</p>
 {% else %}
 <p>選手のデータがありません。</p>
 {% endif %}

@@ -12,6 +12,7 @@ from synthetic import (
     write_synthetic_match,
 )
 from tennis_analyze.cli import main
+from tennis_analyze.court_model import COURT_LENGTH_M, COURT_WIDTH_M, SERVICE_LINE_FROM_NET_M
 from tennis_analyze.pipeline import run
 
 
@@ -51,8 +52,18 @@ def test_end_to_end_on_synthetic_match_writes_all_outputs(tmp_path):
         first = own[0]
         assert np.hypot(float(first["x_m"]) - x0, float(first["y_m"]) - y0) < 0.2
 
-    assert stats["A"]["share_front"] == pytest.approx(1.0)
-    assert stats["B"]["share_front"] == pytest.approx(0.0)
+    # Zone shares from the generator's known positions (within 6.40 m of the net = front;
+    # left/right as seen by the player, i.e. x mirrored on the far half). Tolerance covers
+    # homography-estimation error; an inverted homography would swap/flip these clearly.
+    for label, player in (("A", 0), ("B", 1)):
+        pts = np.array([_player_foot_m(player, t, seconds) for t in sample_times])
+        net_y = COURT_LENGTH_M / 2
+        exp_front = float(np.mean(np.abs(pts[:, 1] - net_y) < SERVICE_LINE_FROM_NET_M))
+        px = np.where(pts[:, 1] < net_y, pts[:, 0], COURT_WIDTH_M - pts[:, 0])
+        exp_left = float(np.mean(px < COURT_WIDTH_M / 2))
+        assert 0.0 < exp_front < 1.0 and 0.0 < exp_left < 1.0  # the path crosses both boundaries
+        assert stats[label]["share_front"] == pytest.approx(exp_front, abs=0.15)
+        assert stats[label]["share_left"] == pytest.approx(exp_left, abs=0.15)
 
 
 def test_blank_court_exits_with_code_2_and_writes_check_image(tmp_path):

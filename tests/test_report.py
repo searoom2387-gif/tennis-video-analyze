@@ -50,6 +50,12 @@ def test_report_html_shows_warnings(tmp_path):
     assert "heatmap_A.png" in html and "court_check.png" in html
 
 
+def test_report_html_uses_new_zone_headers(tmp_path):
+    write_outputs(tmp_path, SAMPLES, compute_stats(SAMPLES), IMG, [])
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "ネット側" in html and "ベースライン側" in html and "本人から見て" in html
+
+
 def test_report_html_escapes_warnings(tmp_path):
     write_outputs(tmp_path, SAMPLES, compute_stats(SAMPLES), IMG, ["<script>x</script>"])
     html = (tmp_path / "report.html").read_text(encoding="utf-8")

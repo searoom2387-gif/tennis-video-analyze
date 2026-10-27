@@ -24,11 +24,31 @@ def test_stationary_player_with_tracking_jitter_has_near_zero_distance():
 
 
 def test_zone_shares_sum_to_one_per_axis():
-    pts = [(1.0, 2.0)] * 3 + [(7.0, 20.0)]
+    # (1,2) ベースライン側・左 / (7,8) ネット側・右 / (7,20) ベースライン側・左(x を反転して 1.23)
+    pts = [(1.0, 2.0)] * 2 + [(7.0, 8.0), (7.0, 20.0)]
     s = compute_stats(_samples("A", pts))["A"]
     assert s.share_left + s.share_right == pytest.approx(1.0)
     assert s.share_front + s.share_back == pytest.approx(1.0)
-    assert s.share_left == pytest.approx(0.75) and s.share_front == pytest.approx(0.75)
+    assert s.share_left == pytest.approx(0.75) and s.share_front == pytest.approx(0.25)
+
+
+def test_mirrored_half_gives_same_shares_after_change_of_ends():
+    near = [(7.0, 8.0), (6.5, 3.0), (2.0, 1.0)]
+    far = [(8.23 - x, 23.77 - y) for x, y in near]  # 点対称(サイドチェンジ後の同じ動き)
+    a = compute_stats(_samples("A", near))["A"]
+    b = compute_stats(_samples("A", far))["A"]
+    assert (a.share_front, a.share_left) == pytest.approx((b.share_front, b.share_left))
+
+
+def test_front_boundary_is_exclusive_at_6_40m_from_net():
+    # 浮動小数点の誤差を避けるため、境界のちょうど内側(6.39)と外側(6.41)で確認する
+    net_y = 11.885
+    inside = compute_stats(_samples("A", [(4.0, net_y - 6.39)]))["A"]
+    outside = compute_stats(_samples("A", [(4.0, net_y - 6.41)]))["A"]
+    assert inside.share_front == 1.0 and outside.share_front == 0.0
+    far_inside = compute_stats(_samples("A", [(4.0, net_y + 6.39)]))["A"]
+    far_outside = compute_stats(_samples("A", [(4.0, net_y + 6.41)]))["A"]
+    assert far_inside.share_front == 1.0 and far_outside.share_front == 0.0
 
 
 def test_player_without_samples_is_absent():
