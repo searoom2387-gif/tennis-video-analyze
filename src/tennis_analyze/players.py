@@ -223,10 +223,19 @@ def _in_court(s: TrackSample, margin: float) -> bool:
     )
 
 
+def _overlaps_in_time(a: list[TrackSample], b: list[TrackSample]) -> bool:
+    return a[0].time_s <= b[-1].time_s and b[0].time_s <= a[-1].time_s
+
+
 def select_players(
-    samples: list[TrackSample], court_margin_m: float = 2.0
+    samples: list[TrackSample], court_margin_m: float = 2.0, min_coverage: float = 0.5
 ) -> tuple[list[PlayerSample], list[str]]:
-    """Pick the two most-seen people on court and label them A/B by track id."""
+    """Pick the two most-seen people on court and label them A/B by track id.
+
+    The first player is the track with the most in-court samples; the second is
+    the most-seen track whose time range overlaps the first (two people on court
+    at the same time), so two fragments of one person are never chosen as a pair.
+    """
     in_court = [s for s in samples if _in_court(s, court_margin_m)]
     by_id: dict[int, list[TrackSample]] = {}
     for s in in_court:
@@ -234,7 +243,14 @@ def select_players(
     for lst in by_id.values():
         lst.sort(key=lambda s: s.time_s)
 
-    top = sorted(by_id, key=lambda t: (-len(by_id[t]), by_id[t][0].time_s))[:2]
+    ranked = sorted(by_id, key=lambda t: (-len(by_id[t]), by_id[t][0].time_s))
+    top = ranked[:1]
+    if top:
+        second = next(
+            (t for t in ranked[1:] if _overlaps_in_time(by_id[top[0]], by_id[t])), None
+        )
+        if second is not None:
+            top.append(second)
     top.sort(key=lambda t: by_id[t][0].y_m)  # A = nearer the camera (smaller y) at first sight
     labels = dict(zip(top, ["A", "B"]))
 
@@ -243,6 +259,15 @@ def select_players(
         warnings.append("選手が見つかりません。コート内に人物が検出されませんでした。")
     elif len(top) == 1:
         warnings.append("選手が1人しか見つかりませんでした。")
+
+    all_times = {s.time_s for s in samples}
+    for t in top:
+        coverage = len({s.time_s for s in by_id[t]}) / len(all_times)
+        if coverage < min_coverage:
+            warnings.append(
+                f"選手{labels[t]}が検出できたのは全体の{coverage * 100:.0f}%の時間だけです。"
+                "数値はその時間だけに基づきます。"
+            )
 
     out = [
         PlayerSample(s.time_s, labels[s.track_id], s.x_m, s.y_m)

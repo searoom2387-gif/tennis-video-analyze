@@ -180,3 +180,41 @@ def test_tracker_new_far_detection_gets_new_id_and_empty_frames_are_ok():
     ids = {round(tb.box_xyxy[0]): tb.track_id for tb in b}
     assert ids[104] == a[0].track_id
     assert ids[900] > a[0].track_id
+
+
+def test_select_players_does_not_pick_two_fragments_of_one_person():
+    # Person P (near side) is split into two non-overlapping fragments by a long occlusion;
+    # the real opponent is a single, shorter track that overlaps P's first fragment.
+    p_first = _walk(1, 0, 20, (2, 3), (3, 4), n=40)
+    p_second = _walk(3, 35, 60, (3, 4), (2, 3), n=30)
+    opponent = _walk(2, 10, 45, (5, 20), (4, 19), n=25)
+    out, _ = select_players(p_first + p_second + opponent)
+    a_points = {(s.time_s, s.x_m, s.y_m) for s in out if s.player == "A"}
+    b_points = {(s.time_s, s.x_m, s.y_m) for s in out if s.player == "B"}
+    assert a_points == {(s.time_s, s.x_m, s.y_m) for s in p_first}
+    assert b_points == {(s.time_s, s.x_m, s.y_m) for s in opponent}
+
+
+def test_select_players_one_person_in_fragments_returns_one_player_with_warning():
+    p_first = _walk(1, 0, 20, (2, 3), (3, 4), n=40)
+    p_second = _walk(3, 35, 60, (3, 4), (2, 3), n=30)
+    out, warns = select_players(p_first + p_second)
+    assert {s.player for s in out} == {"A"}
+    assert len(out) == len(p_first)
+    assert any("1人" in w for w in warns)
+
+
+def test_coverage_warning_fires_below_half_of_sampled_times():
+    a = _walk(1, 0, 60, (2, 3), (3, 4), n=61)  # every second
+    b = _walk(2, 0, 20, (5, 20), (4, 19), n=21)  # only the first 21 of 61 times
+    out, warns = select_players(a + b)
+    cover = [w for w in warns if "%" in w]
+    assert len(cover) == 1
+    assert "B" in cover[0] and "34%" in cover[0]
+
+
+def test_coverage_warning_absent_above_half():
+    a = _walk(1, 0, 60, (2, 3), (3, 4), n=61)
+    b = _walk(2, 0, 40, (5, 20), (4, 19), n=41)  # 41 of 61 times = 67%
+    _, warns = select_players(a + b)
+    assert warns == []
