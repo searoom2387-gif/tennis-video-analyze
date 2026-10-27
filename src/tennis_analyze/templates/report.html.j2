@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>選手ポジション分析レポート</title>
+<style>
+body { font-family: sans-serif; margin: 2em; }
+table { border-collapse: collapse; }
+th, td { border: 1px solid #999; padding: 4px 10px; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+.warnings { background: #fff3cd; border: 1px solid #e0b000; padding: 0.5em 1em; }
+img { max-width: 100%; }
+.heatmaps img { height: 480px; margin-right: 1em; }
+</style>
+</head>
+<body>
+<h1>選手ポジション分析レポート</h1>
+
+{% if warnings %}
+<div class="warnings">
+<h2>警告</h2>
+<ul>
+{% for w in warnings %}<li>{{ w }}</li>
+{% endfor %}</ul>
+</div>
+{% endif %}
+
+<h2>スタッツ</h2>
+{% if stats %}
+<table>
+<tr><th>選手</th><th>移動距離 (m)</th><th>平均速度 (m/s)</th><th>左側 (%)</th><th>右側 (%)</th><th>手前 (%)</th><th>奥 (%)</th></tr>
+{% for player, st in stats.items() %}
+<tr><td>{{ player }}</td><td>{{ "%.1f"|format(st.distance_m) }}</td><td>{{ "%.2f"|format(st.mean_speed_mps) }}</td><td>{{ "%.0f"|format(st.share_left * 100) }}</td><td>{{ "%.0f"|format(st.share_right * 100) }}</td><td>{{ "%.0f"|format(st.share_front * 100) }}</td><td>{{ "%.0f"|format(st.share_back * 100) }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>選手のデータがありません。</p>
+{% endif %}
+
+<h2>ヒートマップ</h2>
+<div class="heatmaps">
+{% for player in heatmaps %}<figure style="display:inline-block"><figcaption>選手 {{ player }}</figcaption><img src="heatmap_{{ player }}.png" alt="選手 {{ player }} のヒートマップ"></figure>
+{% else %}<p>ヒートマップはありません。</p>
+{% endfor %}</div>
+
+<h2>コート検出の確認</h2>
+<img src="court_check.png" alt="コート検出の確認画像">
+</body>
+</html>
