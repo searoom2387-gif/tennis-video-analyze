@@ -62,11 +62,18 @@ def _iou(a, b) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def _center(box) -> tuple[float, float]:
+    return (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
+
+
 class PlayerTracker:
     """Greedy IoU multi-object tracker (ByteTrack-style two-stage association).
 
     supervision 0.31.2 no longer ships ByteTrack (it moved to the separate
     `trackers` package), so a small self-contained tracker is used instead.
+    Each track keeps a constant-velocity estimate (smoothed box-center shift per
+    frame) and detections are matched against the box predicted for the current
+    frame, so two people who cross keep their ids.
     High-score detections are matched first, then low-score ones are used to
     keep existing tracks alive; only high-score unmatched detections start tracks.
     Tracks are dropped after `max_lost` consecutive missed frames.
@@ -77,17 +84,30 @@ class PlayerTracker:
         high_score: float = 0.6,
         min_iou: float = 0.1,
         max_lost: int = 10,
+        velocity_smoothing: float = 0.5,
     ):
         self._high_score = high_score
         self._min_iou = min_iou
         self._max_lost = max_lost
+        self._alpha = velocity_smoothing
         self._next_id = 1
-        self._tracks: dict[int, dict] = {}  # id -> {"box": ..., "lost": int}
+        # id -> {"box": last matched box, "lost": missed frames, "vel": (dx, dy) per frame or None}
+        self._tracks: dict[int, dict] = {}
+
+    def _predicted(self, t: int):
+        tr = self._tracks[t]
+        if tr["vel"] is None:
+            return tr["box"]
+        steps = tr["lost"] + 1  # frames since the last match
+        dx, dy = tr["vel"][0] * steps, tr["vel"][1] * steps
+        x1, y1, x2, y2 = tr["box"]
+        return (x1 + dx, y1 + dy, x2 + dx, y2 + dy)
 
     def _associate(self, track_ids, dets):
+        predicted = {t: self._predicted(t) for t in track_ids}
         pairs = sorted(
             (
-                (_iou(self._tracks[t]["box"], d.box_xyxy), t, i)
+                (_iou(predicted[t], d.box_xyxy), t, i)
                 for t in track_ids
                 for i, d in enumerate(dets)
             ),
@@ -104,6 +124,21 @@ class PlayerTracker:
             matches.append((t, i))
         return matches, used_t, used_d
 
+    def _match(self, t: int, box) -> None:
+        tr = self._tracks[t]
+        steps = tr["lost"] + 1
+        (cx0, cy0), (cx1, cy1) = _center(tr["box"]), _center(box)
+        measured = ((cx1 - cx0) / steps, (cy1 - cy0) / steps)
+        if tr["vel"] is None:
+            vel = measured
+        else:
+            a = self._alpha
+            vel = (
+                a * measured[0] + (1 - a) * tr["vel"][0],
+                a * measured[1] + (1 - a) * tr["vel"][1],
+            )
+        self._tracks[t] = {"box": box, "lost": 0, "vel": vel}
+
     def update(self, detections: list[Detection]) -> list[TrackedBox]:
         high = [d for d in detections if d.score >= self._high_score]
         low = [d for d in detections if d.score < self._high_score]
@@ -112,14 +147,14 @@ class PlayerTracker:
 
         matches, used_t, used_d = self._associate(list(self._tracks), high)
         for t, i in matches:
-            self._tracks[t] = {"box": high[i].box_xyxy, "lost": 0}
+            self._match(t, high[i].box_xyxy)
             out.append(TrackedBox(t, tuple(high[i].box_xyxy)))
         matched |= used_t
 
         rest = [t for t in self._tracks if t not in matched]
         matches, used_t, _ = self._associate(rest, low)
         for t, i in matches:
-            self._tracks[t] = {"box": low[i].box_xyxy, "lost": 0}
+            self._match(t, low[i].box_xyxy)
             out.append(TrackedBox(t, tuple(low[i].box_xyxy)))
         matched |= used_t
 
@@ -133,7 +168,7 @@ class PlayerTracker:
             if i not in used_d:
                 tid = self._next_id
                 self._next_id += 1
-                self._tracks[tid] = {"box": d.box_xyxy, "lost": 0}
+                self._tracks[tid] = {"box": d.box_xyxy, "lost": 0, "vel": None}
                 out.append(TrackedBox(tid, tuple(d.box_xyxy)))
         return out
 
