@@ -38,13 +38,25 @@ def _write_heatmap_png(samples: list[PlayerSample], player: str, path: Path) -> 
 
 
 def _write_pdf(out_dir: Path, html_path: Path, warnings: list[str]) -> Path | None:
+    """Best effort: PDF is optional, so any failure becomes a warning, never an exception."""
     try:
         import weasyprint
     except ImportError:
         warnings.append("weasyprint が見つからないため PDF は作成されませんでした")
         return None
+    except OSError as e:  # e.g. pango/gobject system libraries missing
+        warnings.append(f"weasyprint を読み込めないため PDF は作成されませんでした({e})")
+        return None
     pdf_path = out_dir / "report.pdf"
-    weasyprint.HTML(filename=str(html_path)).write_pdf(str(pdf_path))
+    try:
+        weasyprint.HTML(filename=str(html_path)).write_pdf(str(pdf_path))
+    except Exception as e:
+        pdf_path.unlink(missing_ok=True)
+        warnings.append(f"PDF の作成に失敗しました({e})")
+        return None
+    if not pdf_path.exists():
+        warnings.append("PDF の作成に失敗しました")
+        return None
     return pdf_path
 
 

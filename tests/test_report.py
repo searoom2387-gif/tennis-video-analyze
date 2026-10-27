@@ -1,9 +1,11 @@
 import json
+import sys
+import types
+from pathlib import Path
 
 import cv2
 import numpy as np
 
-import tennis_analyze.report as report
 from tennis_analyze.report import write_outputs
 from tennis_analyze.stats import compute_stats
 from tennis_analyze.types import PlayerSample
@@ -117,4 +119,56 @@ def test_pdf_without_weasyprint_adds_warning(tmp_path, monkeypatch):
 def test_pdf_not_attempted_by_default(tmp_path):
     paths = write_outputs(tmp_path, SAMPLES, compute_stats(SAMPLES), IMG, [])
     assert "report.pdf" not in {p.name for p in paths}
-    assert hasattr(report, "write_outputs")
+
+
+def test_pdf_library_load_oserror_adds_warning(tmp_path, monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name.startswith("weasyprint"):
+            raise OSError("cannot load library 'gobject-2.0-0'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    paths = write_outputs(tmp_path, SAMPLES, compute_stats(SAMPLES), IMG, [], pdf=True)
+    assert "report.pdf" not in {p.name for p in paths}
+    assert not (tmp_path / "report.pdf").exists()
+    assert "PDF" in (tmp_path / "report.html").read_text(encoding="utf-8")
+
+
+def _fake_weasyprint(write_pdf):
+    module = types.ModuleType("weasyprint")
+
+    class HTML:
+        def __init__(self, filename=None, **kwargs):
+            self.filename = filename
+
+        def write_pdf(self, target=None, **kwargs):
+            return write_pdf(target)
+
+    module.HTML = HTML
+    return module
+
+
+def test_pdf_write_failure_adds_warning(tmp_path, monkeypatch):
+    def boom(target):
+        raise RuntimeError("render failed")
+
+    monkeypatch.setitem(sys.modules, "weasyprint", _fake_weasyprint(boom))
+    paths = write_outputs(tmp_path, SAMPLES, compute_stats(SAMPLES), IMG, [], pdf=True)
+    assert "report.pdf" not in {p.name for p in paths}
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "PDF" in html and "render failed" in html
+
+
+def test_pdf_written_when_weasyprint_works(tmp_path, monkeypatch):
+    def ok(target):
+        Path(target).write_bytes(b"%PDF-1.4 fake")
+
+    monkeypatch.setitem(sys.modules, "weasyprint", _fake_weasyprint(ok))
+    paths = write_outputs(tmp_path, SAMPLES, compute_stats(SAMPLES), IMG, [], pdf=True)
+    assert "report.pdf" in {p.name for p in paths}
+    assert (tmp_path / "report.pdf").exists()
+    assert "PDF" not in (tmp_path / "report.html").read_text(encoding="utf-8")
