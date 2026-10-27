@@ -5,7 +5,7 @@ import numpy as np
 from tennis_analyze.court_model import COURT_LENGTH_M, COURT_WIDTH_M
 from tennis_analyze.types import PlayerSample
 
-MIN_STEP_M = 0.1  # smoothed steps under 0.1 m per sample (~0.5 m/s) are jitter, not movement
+ANCHOR_RADIUS_M = 0.3  # movement counts only once the player is this far from the last anchor
 
 
 @dataclass(frozen=True)
@@ -32,8 +32,14 @@ def smooth_path(xy: np.ndarray, window: int = 5) -> np.ndarray:
 def _distance(xy: np.ndarray) -> float:
     if len(xy) < 2:
         return 0.0
-    steps = np.linalg.norm(np.diff(smooth_path(xy), axis=0), axis=1)
-    return float(steps[steps >= MIN_STEP_M].sum())
+    path = smooth_path(xy)
+    anchor, total = path[0], 0.0
+    for point in path[1:]:
+        d = float(np.linalg.norm(point - anchor))
+        if d > ANCHOR_RADIUS_M:
+            total += d
+            anchor = point
+    return total
 
 
 def compute_stats(samples: list[PlayerSample]) -> dict[str, PlayerStats]:

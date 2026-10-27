@@ -44,3 +44,10 @@ def test_heatmap_counts_samples_and_ignores_outside_court():
     pts = [(1.0, 1.0)] * 4 + [(-3.0, 5.0)]
     hm = heatmap(_samples("A", pts), "A")
     assert hm.shape == (24, 48) and hm.sum() == 4
+
+
+def test_slow_drift_with_jitter_is_not_undercounted():
+    rng = np.random.default_rng(1)
+    pts = [(4 + rng.normal(0, 0.05), 2.0 + 0.4 * i * 0.2 + rng.normal(0, 0.05)) for i in range(51)]
+    s = compute_stats(_samples("A", pts))["A"]
+    assert s.distance_m == pytest.approx(4.0, abs=1.0)  # 0.4 m/s for 10 s
