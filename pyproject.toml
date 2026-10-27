@@ -12,7 +12,6 @@ dependencies = [
     "opencv-python-headless",
     "torch",
     "torchvision",
-    "supervision",
     "matplotlib",
     "jinja2",
 ]

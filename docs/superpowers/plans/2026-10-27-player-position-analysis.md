@@ -6,7 +6,7 @@
 
 **Architecture:** 映像読み込み → コート検出(ホモグラフィ)→ 選手検出・追跡 → スタッツ計算 → レポート生成の5部品を、型付きデータだけでつなぐ。検出器は Protocol の裏に置き、テストでは偽の検出器を差し込む。
 
-**Tech Stack:** Python 3.11、numpy、opencv-python-headless、torch/torchvision、supervision(ByteTrack)、matplotlib、jinja2、pytest。
+**Tech Stack:** Python 3.11、numpy、opencv-python-headless、torch/torchvision、追跡は自作の ByteTrack 風 IoU トラッカー(等速度予測つき。supervision 0.31.2 には ByteTrack が無いため)、matplotlib、jinja2、pytest。
 
 **Spec:** `docs/superpowers/specs/2026-10-27-player-position-analysis-design.md`
 
