@@ -372,7 +372,7 @@ git commit -m "feat: add player tracking, stitching, and selection"
 **Interfaces:**
 - Consumes: `PlayerSample`(Task 1)、`COURT_WIDTH_M`、`COURT_LENGTH_M`
 - Produces:
-  - `@dataclass(frozen=True) PlayerStats(distance_m: float, mean_speed_mps: float, share_left: float, share_right: float, share_front: float, share_back: float)`(前=手前半分 y<11.885、左=x<4.115)
+  - `@dataclass(frozen=True) PlayerStats(distance_m: float, mean_speed_mps: float, share_left: float, share_right: float, share_front: float, share_back: float)`(2026-10-27 改訂: 前 = `abs(y - 11.885) < 6.40`、後 = それ以外。左右は選手本人から見た向きで、y < 11.885 なら x、それ以外なら `8.23 - x` を使い、4.115 未満を左とする。サンプルごとに判定し、コート外のサンプルも含める)
   - `compute_stats(samples: list[PlayerSample]) -> dict[str, PlayerStats]`(キーは `"A"`、`"B"`。サンプルが無い選手はキーに含めない)
   - `heatmap(samples: list[PlayerSample], player: str, bins: tuple[int, int] = (24, 48)) -> np.ndarray`((幅方向, 長さ方向) の滞在秒数ではなくサンプル数、コート外は除く)
   - `smooth_path(xy: np.ndarray, window: int = 5) -> np.ndarray`(移動中央値でノイズを除く)
@@ -396,11 +396,24 @@ def test_stationary_player_with_tracking_jitter_has_near_zero_distance():
     assert s.distance_m < 3.0       # 生のままだと 300 * 約0.09m = 約27m になる
 
 def test_zone_shares_sum_to_one_per_axis():
-    pts = [(1.0, 2.0)] * 3 + [(7.0, 20.0)]
+    # (1,2) 手前・後ろ・左 / (7,8) 手前・前・右 / (7,20) 奥・後ろ・左(x を反転して 1.23)
+    pts = [(1.0, 2.0)] * 2 + [(7.0, 8.0), (7.0, 20.0)]
     s = compute_stats(_samples("A", pts))["A"]
     assert s.share_left + s.share_right == pytest.approx(1.0)
     assert s.share_front + s.share_back == pytest.approx(1.0)
-    assert s.share_left == pytest.approx(0.75) and s.share_front == pytest.approx(0.75)
+    assert s.share_left == pytest.approx(0.75) and s.share_front == pytest.approx(0.25)
+
+def test_mirrored_half_gives_same_shares_after_change_of_ends():
+    near = [(7.0, 8.0), (6.5, 3.0), (2.0, 1.0)]
+    far = [(8.23 - x, 23.77 - y) for x, y in near]       # 点対称(サイドチェンジ後の同じ動き)
+    a = compute_stats(_samples("A", near))["A"]
+    b = compute_stats(_samples("A", far))["A"]
+    assert (a.share_front, a.share_left) == pytest.approx((b.share_front, b.share_left))
+
+def test_front_boundary_is_exclusive_at_6_40m_from_net():
+    inside = compute_stats(_samples("A", [(4.0, 11.885 - 6.39)]))["A"]
+    on_line = compute_stats(_samples("A", [(4.0, 11.885 - 6.40)]))["A"]
+    assert inside.share_front == 1.0 and on_line.share_front == 0.0
 
 def test_player_without_samples_is_absent():
     assert "B" not in compute_stats(_samples("A", [(1.0, 1.0), (1.0, 2.0)]))
