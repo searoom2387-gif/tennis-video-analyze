@@ -1,18 +1,58 @@
+import csv
 import json
 
-from synthetic import FakeDetector, write_blank_video, write_synthetic_match
+import numpy as np
+import pytest
+
+from synthetic import (
+    _SAMPLE_FPS,
+    FakeDetector,
+    _player_foot_m,
+    write_blank_video,
+    write_synthetic_match,
+)
 from tennis_analyze.cli import main
 from tennis_analyze.pipeline import run
 
 
+def _true_path_length(player: int, times: list[float], seconds: float) -> float:
+    """Ground-truth path length of the generator's motion over the sampled times."""
+    pts = np.array([_player_foot_m(player, t, seconds) for t in times])
+    return float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
+
+
 def test_end_to_end_on_synthetic_match_writes_all_outputs(tmp_path):
+    seconds = 6  # write_synthetic_match's default length
     video = tmp_path / "m.mp4"
-    boxes = write_synthetic_match(video)
+    boxes = write_synthetic_match(video, seconds=seconds)
     warnings = run(video, tmp_path / "out", FakeDetector(boxes))
     assert (tmp_path / "out" / "report.html").exists()
-    stats = json.loads((tmp_path / "out" / "stats.json").read_text())
-    assert set(stats) == {"A", "B"} and stats["A"]["distance_m"] > 0
     assert warnings == []
+    stats = json.loads((tmp_path / "out" / "stats.json").read_text())
+    assert set(stats) == {"A", "B"}
+
+    with (tmp_path / "out" / "positions.csv").open(encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    sample_times = [i / _SAMPLE_FPS for i in range(len(boxes))]
+    # Generator: player 0 is the near player (A, y 3->6 m), player 1 the far one (B, y 20->17 m).
+    for label, player in (("A", 0), ("B", 1)):
+        own = [r for r in rows if r["player"] == label]
+        times = [float(r["time_s"]) for r in own]
+        assert times == pytest.approx(sample_times, abs=1e-6)
+
+        expected = _true_path_length(player, sample_times, seconds)
+        assert stats[label]["distance_m"] == pytest.approx(expected, rel=0.15)
+        duration = times[-1] - times[0]
+        assert stats[label]["mean_speed_mps"] == pytest.approx(
+            stats[label]["distance_m"] / duration, rel=1e-6
+        )
+
+        x0, y0 = _player_foot_m(player, 0.0, seconds)
+        first = own[0]
+        assert np.hypot(float(first["x_m"]) - x0, float(first["y_m"]) - y0) < 0.2
+
+    assert stats["A"]["share_front"] == pytest.approx(1.0)
+    assert stats["B"]["share_front"] == pytest.approx(0.0)
 
 
 def test_blank_court_exits_with_code_2_and_writes_check_image(tmp_path):
